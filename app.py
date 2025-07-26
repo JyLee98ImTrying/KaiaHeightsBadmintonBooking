@@ -1,94 +1,122 @@
 import streamlit as st
 import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
 import re
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import os
 
-# -------------------------
-# Setup Google Sheets
-# -------------------------
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+# --------------------------- CONFIG ---------------------------
+SHEET_NAME = "KaiaHeightsBookings"
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+
+# ------------------ GOOGLE SHEETS SETUP ------------------
+scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
-sheet = client.open("kaiaheights_booking").sheet1
 
-# -------------------------
-# Setup app
-# -------------------------
+def get_sheet():
+    try:
+        sheet = client.open(SHEET_NAME).sheet1
+    except:
+        sheet = client.create(SHEET_NAME).sheet1
+        sheet.append_row(["Name", "Email", "Unit", "Date", "Time", "Court", "BookedAt"])
+    return sheet
+
+# ------------------ EMAIL FUNCTION ------------------
+def send_confirmation_email(to_email, name, unit, date, times, courts):
+    if not to_email:
+        return
+    body = f"""
+    Hi {name},\n\nYour booking is confirmed:\nUnit: {unit}\nDate: {date}\nTime: {', '.join(times)}\nCourt(s): {', '.join(courts)}\n\nThank you!\nKaiaHeights Booking System
+    """
+    msg = MIMEText(body)
+    msg['Subject'] = 'KaiaHeights Badminton Booking Confirmation'
+    msg['From'] = EMAIL_SENDER
+    msg['To'] = to_email
+
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        server.send_message(msg)
+
+# ------------------ APP SETUP ------------------
 st.set_page_config(page_title="KaiaHeights Badminton Booking", layout="centered")
 st.title("🏸 KaiaHeights Badminton Booking")
-st.markdown("Check real-time availability and make your booking below.")
 
-# Time slots and courts
-start_time = datetime.strptime("10:00", "%H:%M")
-slots = [(start_time + timedelta(hours=i)).strftime("%I:%M %p") for i in range(13)]  # 10AM–10PM
+sheet = get_sheet()
+data = pd.DataFrame(sheet.get_all_records())
+
+dates = pd.date_range(datetime.today(), periods=7).strftime("%Y-%m-%d").tolist()
+time_slots = [(datetime.strptime("10:00", "%H:%M") + timedelta(hours=i)).strftime("%I:%M %p") for i in range(13)]
 courts = ["Court 1", "Court 2"]
 
-# Load existing bookings
-records = sheet.get_all_records()
-df = pd.DataFrame(records)
+# ------------------ VIEW BOOKINGS ------------------
+st.subheader("📅 Check Court Availability")
+selected_date = st.selectbox("Choose a date", dates)
 
-# If empty sheet, initialize
-if df.empty:
-    dates = pd.date_range(datetime.today(), periods=7).strftime("%Y-%m-%d").tolist()
-    data = []
-    for date in dates:
-        for court in courts:
-            for slot in slots:
-                data.append([date, court, slot, "TRUE", ""])
-    sheet.append_rows(data, value_input_option="USER_ENTERED")
-    df = pd.DataFrame(data, columns=["date", "court", "time_slot", "available", "booked_by"])
-
-# -------------------------
-# UI – Show Availability
-# -------------------------
-selected_date = st.selectbox("📅 Select a date", sorted(df["date"].unique()))
-st.subheader("Available Slots")
-available_df = df[(df["date"] == selected_date) & (df["available"] == "TRUE")]
+booked = data[data['Date'] == selected_date]
 
 for court in courts:
     st.markdown(f"**{court}**")
-    court_slots = available_df[available_df["court"] == court]["time_slot"].tolist()
-    if court_slots:
-        st.write(", ".join(court_slots))
+    booked_slots = booked[booked['Court'] == court]['Time'].tolist()
+    available = [t for t in time_slots if t not in booked_slots]
+    if available:
+        st.write(", ".join(available))
     else:
-        st.write("❌ No available slots")
+        st.warning("Fully booked")
 
-# -------------------------
-# UI – Booking Form
-# -------------------------
+# ------------------ BOOK FORM ------------------
 st.subheader("✅ Book a Court")
-
 with st.form("booking_form"):
     name = st.text_input("Your Name")
+    email = st.text_input("Email (for confirmation, optional)")
     unit = st.text_input("Your Unit Number (format: X-XX-XX)")
-    email = st.text_input("Email for confirmation")
     court_choice = st.multiselect("Select Court(s)", courts)
-    time_choice = st.multiselect("Select Time Slot(s)", slots)
+    time_choice = st.multiselect("Select Time Slot(s)", time_slots)
     submit = st.form_submit_button("Book Now")
 
     if submit:
-        # Validate unit number format
-        if not re.match(r"^\d-\d{2}-\d{2}$", unit):
-            st.error("❌ Invalid unit number format. Please use X-XX-XX format.")
-        elif not name or not email or not court_choice or not time_choice:
-            st.error("❌ Please fill in all fields.")
+        if not name or not unit or not court_choice or not time_choice:
+            st.error("All fields except email are required.")
+        elif not re.match(r"^\d-\d{2}-\d{2}$", unit):
+            st.error("Invalid unit format. Use X-XX-XX")
         elif len(court_choice) * len(time_choice) > 4:
-            st.error("❌ Maximum of 2 courts for 2 hours (4 total slots).")
+            st.error("Max 2 courts for 2 hours allowed.")
         else:
-            updated = 0
-            for i, row in df.iterrows():
-                if row["date"] == selected_date and row["court"] in court_choice and row["time_slot"] in time_choice:
-                    if row["available"] == "TRUE":
-                        sheet.update_cell(i + 2, 4, "FALSE")  # Column D: available
-                        sheet.update_cell(i + 2, 5, f"{name} ({unit})")  # Column E: booked_by
-                        updated += 1
-            if updated > 0:
-                st.success(f"✅ {updated} slot(s) booked successfully.")
-                # Send confirmation email
-                try:
-                    msg = MIMEText(
-                        f"Hi {name},\n\nYour booking on {selected_dat_
+            duplicate = False
+            for court in court_choice:
+                for t in time_choice:
+                    if ((data['Date'] == selected_date) &
+                        (data['Court'] == court) &
+                        (data['Time'] == t)).any():
+                        st.warning(f"{court} at {t} is already booked.")
+                        duplicate = True
+            if not duplicate:
+                for court in court_choice:
+                    for t in time_choice:
+                        sheet.append_row([name, email, unit, selected_date, t, court, str(datetime.now())])
+                send_confirmation_email(email, name, unit, selected_date, time_choice, court_choice)
+                st.success("🎉 Booking confirmed!")
+
+# ------------------ CANCEL BY UNIT ------------------
+st.subheader("❌ Cancel by Unit")
+with st.form("cancel_unit"):
+    cancel_unit = st.text_input("Enter your Unit Number (X-XX-XX)")
+    cancel_date = st.selectbox("Date of Booking to Cancel", dates, key="cancel")
+    cancel_btn = st.form_submit_button("Cancel Booking")
+
+    if cancel_btn:
+        if not re.match(r"^\d-\d{2}-\d{2}$", cancel_unit):
+            st.error("Invalid unit format.")
+        else:
+            df = pd.DataFrame(sheet.get_all_records())
+            original_len = len(df)
+            df = df[~((df['Unit'] == cancel_unit) & (df['Date'] == cancel_date))]
+            sheet.clear()
+            sheet.append_row(["Name", "Email", "Unit", "Date", "Time", "Court", "BookedAt"])
+            for _, row in df.iterrows():
+                sheet.append_row(list(row))
+            st.success("Booking(s) cancelled for that unit and date.")
