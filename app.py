@@ -1,109 +1,116 @@
 import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
+import requests
 from datetime import datetime, timedelta
-import re
 
-# Constants
-SHEET_NAME = "Kaia Heights Badminton Booking"
-TIME_SLOTS = [f"{hour}:00" for hour in range(10, 22)]  # 10am to 10pm
-COURTS = ["Court 1", "Court 2"]
+# Airtable configuration
+AIRTABLE_API_KEY = "patuTF5R5afg1re9p.95735c59fff75d42e0a73bb8c26780738820b757f09fd4527147982432892a97"
+AIRTABLE_BASE_ID = "appfgu3MwNjxrtTg0"
+AIRTABLE_TABLE_NAME = "Kaia Heights Badminton Booking"
 
-# Google Sheets Auth
-scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-credentials = Credentials.from_service_account_info(st.secrets["GOOGLE_CREDENTIALS"], scopes=scope)
-client = gspread.authorize(credentials)
-sheet = client.open(SHEET_NAME).sheet1
-
-# Load existing data
-def load_data():
-    return pd.DataFrame(sheet.get_all_records())
-
-data = load_data()
-
-def is_valid_unit(unit):
-    return re.match(r"^[A-Z]-\d{2}-\d{2}$", unit.upper())
-
-# UI
-st.set_page_config(page_title="KaiaHeights Badminton Booking", layout="centered")
-st.title("🏸 KaiaHeights Badminton Booking")
-
-# Calendar
-dates = pd.date_range(datetime.today(), periods=7).strftime("%Y-%m-%d").tolist()
-selected_date = st.selectbox("Select a date", dates)
-
-# Availability View
-st.subheader(f"Available Slots for {selected_date}")
-booked = data[data["Date"] == selected_date]
-
-availability = {
-    (slot, court): True for slot in TIME_SLOTS for court in COURTS
+AIRTABLE_ENDPOINT = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
+HEADERS = {
+    "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+    "Content-Type": "application/json"
 }
 
-for _, row in booked.iterrows():
-    availability[(row["Time"], row["Court"])] = False
+# Constants
+TIME_SLOTS = [f"{hour}:00" for hour in range(10, 22)]
+COURTS = ["Court 1", "Court 2"]
 
-for slot in TIME_SLOTS:
-    cols = st.columns(len(COURTS))
-    for idx, court in enumerate(COURTS):
-        key = (slot, court)
-        status = "✅ Available" if availability[key] else "❌ Booked"
-        cols[idx].markdown(f"**{court} - {slot}**: {status}")
+# Utility functions
+def fetch_bookings():
+    response = requests.get(AIRTABLE_ENDPOINT, headers=HEADERS)
+    if response.status_code == 200:
+        records = response.json().get("records", [])
+        bookings = [
+            {
+                "id": r["id"],
+                **r["fields"]
+            } for r in records
+        ]
+        return pd.DataFrame(bookings)
+    else:
+        return pd.DataFrame()
 
-st.divider()
+def create_booking(name, email, unit, date, time, court):
+    data = {
+        "fields": {
+            "Name": name,
+            "Email": email,
+            "Unit": unit,
+            "Date": date,
+            "Time": time,
+            "Court": court
+        }
+    }
+    response = requests.post(AIRTABLE_ENDPOINT, headers=HEADERS, json=data)
+    return response.status_code == 200
 
-# Booking Form
-st.subheader("📋 Book a Slot")
+def delete_booking(record_id):
+    url = f"{AIRTABLE_ENDPOINT}/{record_id}"
+    response = requests.delete(url, headers=HEADERS)
+    return response.status_code == 200
+
+# Streamlit App
+st.set_page_config(page_title="KaiaHeights Badminton Booking", layout="wide")
+st.title("🏸 KaiaHeights Badminton Booking")
+
+selected_date = st.date_input("Select a date", datetime.today())
+bookings_df = fetch_bookings()
+
+# Filter bookings for selected date
+bookings_on_date = bookings_df[bookings_df["Date"] == selected_date.strftime("%Y-%m-%d")]
+
+# Show court availability
+st.subheader(f"Availability on {selected_date.strftime('%A, %d %B %Y')}")
+for court in COURTS:
+    st.markdown(f"### {court}")
+    cols = st.columns(6)
+    for i, time in enumerate(TIME_SLOTS):
+        is_booked = ((bookings_on_date["Court"] == court) & (bookings_on_date["Time"] == time)).any()
+        if is_booked:
+            cols[i % 6].button(time, disabled=True)
+        else:
+            cols[i % 6].success(time)
+
+# Booking form
+st.subheader("Make a Booking")
 with st.form("booking_form"):
     name = st.text_input("Name")
     email = st.text_input("Email")
-    unit = st.text_input("Unit (format: X-XX-XX)")
-    selected_slots = st.multiselect("Select up to 2 slots", [f"{slot} - {court}" for slot, court in availability if availability[(slot, court)]], max_selections=2)
-    submitted = st.form_submit_button("Book Now")
+    unit = st.text_input("Unit")
+    date = st.date_input("Booking Date", datetime.today())
+    time = st.selectbox("Time Slot", TIME_SLOTS)
+    court = st.selectbox("Court", COURTS)
+    submit = st.form_submit_button("Book")
 
-    if submitted:
-        if not name or not email or not unit or not selected_slots:
-            st.error("Please complete all fields and select slots.")
-        elif not is_valid_unit(unit):
-            st.error("Unit must follow the format X-XX-XX (e.g., A-12-08).")
+    if submit:
+        # Check if already booked
+        existing = bookings_df[
+            (bookings_df["Email"] == email) &
+            (bookings_df["Date"] == date.strftime("%Y-%m-%d"))
+        ]
+        if len(existing) >= 2:
+            st.error("You have reached the maximum of 2 bookings per day.")
         else:
-            for sc in selected_slots:
-                time, court = sc.split(" - ")
-                sheet.append_row([name, email, unit.upper(), selected_date, time, court])
-            st.success("✅ Booking successful!")
-            st.experimental_rerun()
+            success = create_booking(name, email, unit, date.strftime("%Y-%m-%d"), time, court)
+            if success:
+                st.success("Booking confirmed!")
+            else:
+                st.error("Failed to book. Please try again.")
 
-st.divider()
-
-# Manage Bookings
-st.subheader("✏️ Edit or Cancel Booking")
+# Cancel/edit bookings
+st.subheader("Your Bookings")
 user_email = st.text_input("Enter your email to manage bookings")
 if user_email:
-    user_bookings = data[data["Email"] == user_email]
-    if user_bookings.empty:
-        st.info("No bookings found for this email.")
-    else:
-        for idx, row in user_bookings.iterrows():
-            with st.expander(f"{row['Date']} {row['Time']} - {row['Court']}"):
-                new_name = st.text_input(f"Name_{idx}", value=row['Name'], key=f"name_{idx}")
-                new_unit = st.text_input(f"Unit_{idx}", value=row['Unit'], key=f"unit_{idx}")
-                col1, col2 = st.columns(2)
-
-                if col1.button("Update", key=f"update_{idx}"):
-                    all_rows = sheet.get_all_values()
-                    for i, r in enumerate(all_rows):
-                        if r[1] == row['Email'] and r[3] == row['Date'] and r[4] == row['Time'] and r[5] == row['Court']:
-                            sheet.update(f"A{i+1}:C{i+1}", [[new_name, row['Email'], new_unit]])
-                            st.success("Booking updated.")
-                            st.experimental_rerun()
-                            break
-
-                if col2.button("Cancel", key=f"cancel_{idx}"):
-                    all_rows = sheet.get_all_values()
-                    for i, r in enumerate(all_rows):
-                        if r[1] == row['Email'] and r[3] == row['Date'] and r[4] == row['Time'] and r[5] == row['Court']:
-                            sheet.delete_row(i+1)
-                            st.warning("Booking cancelled.")
-                            st.experimental_rerun()
-                            break
+    user_bookings = bookings_df[bookings_df["Email"] == user_email]
+    for i, row in user_bookings.iterrows():
+        st.markdown(f"**{row['Date']}** - {row['Time']} - {row['Court']}")
+        col1, col2 = st.columns(2)
+        if col1.button(f"Cancel {i}"):
+            if delete_booking(row["id"]):
+                st.success("Booking cancelled.")
+                st.experimental_rerun()
+            else:
+                st.error("Failed to cancel booking.")
