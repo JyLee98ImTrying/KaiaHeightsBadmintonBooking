@@ -62,7 +62,7 @@ def delete_booking(record_id):
 
 # Streamlit UI
 st.set_page_config(page_title="KaiaHeights Badminton Booking", layout="wide")
-st.title("\ud83c\udfc8 KaiaHeights Badminton Booking")
+st.title("KaiaHeights Badminton Booking")  # Removed emoji to prevent Unicode issues
 
 # Sidebar for user input
 with st.sidebar:
@@ -77,8 +77,16 @@ with st.sidebar:
     if st.button("Book Court"):
         if resident_name and email and unit_number:
             booking_id = f"BKG-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            if create_booking(booking_id, resident_name, email, unit_number,
-                              booking_date.strftime("%Y-%m-%d"), booking_time, court):
+            success = create_booking(
+                booking_id,
+                resident_name,
+                email,
+                unit_number,
+                booking_date.strftime("%Y-%m-%d"),
+                booking_time,
+                court
+            )
+            if success:
                 st.success("Booking created successfully!")
             else:
                 st.error("Failed to create booking")
@@ -97,7 +105,6 @@ if not bookings_df.empty:
     if not filtered_df.empty:
         st.dataframe(filtered_df)
 
-        # Delete booking option
         if st.checkbox("Delete a booking"):
             booking_to_delete = st.selectbox("Select booking to delete",
                                              filtered_df["Booking ID"].tolist())
@@ -125,4 +132,5 @@ if not bookings_df.empty:
                 availability_df.loc[time, court] = False
 
 st.dataframe(availability_df.style.applymap(
-    lambda x: 'background-color: #90EE90' if x else 'background-color: #FFB6C1'))
+    lambda x: 'background-color: #90EE90' if x else 'background-color: #FFB6C1'
+))
