@@ -1,5 +1,4 @@
 import streamlit as st
-import json
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -15,10 +14,9 @@ EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 # ------------------ GOOGLE SHEETS SETUP ------------------
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(credentials)
+scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/drive']
+creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+client = gspread.authorize(creds)
 
 def get_sheet():
     try:
