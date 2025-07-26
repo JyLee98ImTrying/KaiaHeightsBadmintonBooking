@@ -12,7 +12,7 @@ st.set_page_config(page_title="KaiaHeights Badminton Booking", layout="centered"
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(credentials)
-sheet = client.open("KaiaHeights Badminton Booking").sheet1
+sheet = client.open("Kaia Heights Badminton Booking").sheet1
 
 # Load data
 def load_bookings():
