@@ -7,7 +7,6 @@ A simple and user-friendly badminton court booking system built for the resident
 ## 🚀 Features
 
 - 📅 View real-time badminton court availability
-- ✅ Book a slot with a simple form submission
-- 📩 Email or on-screen confirmation of booking
-- 🧠 Admin panel to manage time slots (optional)
+- ✅ Book a slot
+- 📩 Email and on-screen confirmation of booking
 - 📱 Mobile-responsive design
