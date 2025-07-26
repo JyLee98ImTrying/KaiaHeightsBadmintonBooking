@@ -1,101 +1,67 @@
 import streamlit as st
 import pandas as pd
-import re
-import datetime
+from datetime import datetime, timedelta
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 
-# Set page config
+# === CONFIGURATION ===
+SHEET_NAME = "Kaia Heights Badminton Booking"
+
+# === AUTHENTICATION ===
+scope = ["https://www.googleapis.com/auth/spreadsheets"]
+creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+client = gspread.authorize(creds)
+
+# === LOAD EXISTING SHEET (MUST ALREADY EXIST & BE SHARED WITH SERVICE ACCOUNT) ===
+def get_sheet():
+    return client.open(SHEET_NAME).sheet1
+
+sheet = get_sheet()
+
+# === LOAD DATA ===
+data = pd.DataFrame(sheet.get_all_records())
+
+# === UI CONFIG ===
 st.set_page_config(page_title="KaiaHeights Badminton Booking", layout="centered")
-
-# Google Sheets setup
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-client = gspread.authorize(credentials)
-sheet = client.open("Kaia Heights Badminton Booking").sheet1
-
-# Load data
-def load_bookings():
-    return pd.DataFrame(sheet.get_all_records())
-
-bookings = load_bookings()
-timeslots = ["8am - 9am", "9am - 10am", "10am - 11am", "11am - 12pm", "12pm - 1pm", "1pm - 2pm", "2pm - 3pm", "3pm - 4pm", "5pm - 6pm", "6pm - 7pm", "7pm - 8pm", "8pm - 9pm", "9pm - 10pm"]
-
-# Validation
-def is_valid_unit(unit):
-    return re.match(r"^\d-\d{2}-\d{2}$", unit)
-
-def save_booking(unit, date, time):
-    sheet.append_row([unit, str(date), time])
-    st.success(f"✅ Booking confirmed for *{date}*, *{time}*, unit: *{unit}*.")
-
-def cancel_booking(unit, date=None, time=None):
-    data = sheet.get_all_values()
-    headers, rows = data[0], data[1:]
-    new_data = []
-    cancelled = False
-
-    for row in rows:
-        if row[0] == unit and (date is None or row[1] == str(date)) and (time is None or row[2] == time):
-            cancelled = True
-            continue
-        new_data.append(row)
-
-    if cancelled:
-        sheet.clear()
-        sheet.append_row(headers)
-        for row in new_data:
-            sheet.append_row(row)
-        st.success("✅ Booking cancelled successfully.")
-    else:
-        st.warning("⚠️ No matching booking found.")
-
-# UI
 st.title("🏸 KaiaHeights Badminton Booking")
 
-# Booking Form
-st.header("📌 Make a Booking")
+# === DATE & TIME OPTIONS ===
+dates = pd.date_range(datetime.today(), periods=7).strftime("%Y-%m-%d").tolist()
+times = [f"{h:02d}:00" for h in range(8, 23)]  # 8AM to 10PM
+
+# === SLOT AVAILABILITY VIEW ===
+st.subheader("📅 Slot Availability (Next 7 Days)")
+selected_day = st.selectbox("Select date to view", dates)
+
+availability_df = pd.DataFrame(index=times, columns=["Status"])
+for t in times:
+    is_booked = ((data["Date"] == selected_day) & (data["Time"] == t)).any()
+    availability_df.loc[t] = "❌ Booked" if is_booked else "✅ Available"
+
+st.dataframe(availability_df, use_container_width=True)
+
+# === BOOKING FORM ===
+st.subheader("🔒 Make a Booking")
+
 with st.form("booking_form"):
-    unit = st.text_input("Unit Number (format: X-XX-XX)", max_chars=8)
-    date = st.date_input("Booking Date", min_value=datetime.date.today())
-    time = st.selectbox("Time Slot", timeslots)
-    submit = st.form_submit_button("Book Now")
+    name = st.text_input("Name")
+    email = st.text_input("Email")
+    unit = st.text_input("Unit Number")
+    date = st.selectbox("Date", dates)
+    time = st.selectbox("Time", times)
+    confirm = st.checkbox("I confirm my booking details are correct")
 
-    if submit:
-        bookings = load_bookings()
-        if not is_valid_unit(unit):
-            st.error("❌ Invalid unit format. Use format X-XX-XX.")
-        elif ((bookings["Date"] == str(date)) & (bookings["Time"] == time)).any():
-            st.warning("⚠️ Slot already booked. Please choose another.")
+    submitted = st.form_submit_button("Submit Booking")
+
+    if submitted:
+        # Check if already booked
+        existing = data[(data["Date"] == date) & (data["Time"] == time)]
+        if not confirm:
+            st.warning("Please confirm your booking details.")
+        elif not name or not email or not unit:
+            st.warning("Please fill in all fields.")
+        elif not existing.empty:
+            st.error("This slot is already booked. Please choose another.")
         else:
-            save_booking(unit, date, time)
-
-# Slot Availability
-st.header("📆 Slot Availability")
-selected_date = st.date_input("Check availability for:", key="check_availability", min_value=datetime.date.today())
-bookings = load_bookings()
-booked_times = bookings[bookings["Date"] == str(selected_date)]["Time"].tolist()
-
-for slot in timeslots:
-    if slot in booked_times:
-        st.markdown(f"❌ **{slot}** - Booked")
-    else:
-        st.markdown(f"✅ **{slot}** - Available")
-
-# Cancel Booking
-st.header("🗑️ Cancel a Booking")
-unit_to_cancel = st.text_input("Enter your Unit Number to view/cancel", key="cancel")
-if unit_to_cancel:
-    filtered = bookings[bookings["Unit"] == unit_to_cancel]
-    if not filtered.empty:
-        st.write("Your bookings:")
-        for i, row in filtered.iterrows():
-            col1, col2, col3 = st.columns([3, 3, 2])
-            with col1:
-                st.write(f"📅 {row['Date']} | 🕒 {row['Time']}")
-            with col3:
-                if st.button("Cancel", key=f"cancel_{i}"):
-                    cancel_booking(unit_to_cancel, row["Date"], row["Time"])
-                    st.experimental_rerun()
-    else:
-        st.info("ℹ️ No bookings found for this unit.")
+            sheet.append_row([name, email, unit, date, time, str(datetime.now())])
+            st.success(f"✅ Booking confirmed for {date} at {time}!")
