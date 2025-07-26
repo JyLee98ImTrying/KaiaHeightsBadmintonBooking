@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Airtable configuration
-AIRTABLE_API_KEY = "patuTF5R5afg1re9p.95735c59fff75d42e0a73bb8c26780738820b757f09fd4527147982432892a97"
-AIRTABLE_BASE_ID = "appfgu3MwNjxrtTg0"
-AIRTABLE_TABLE_NAME = "Kaia Heights Badminton Booking"
-
+AIRTABLE_API_KEY = "patuTF5R5afg1re9p"
+AIRTABLE_BASE_ID = "appelm86wRpQTooy4"
+AIRTABLE_TABLE_NAME = "Bookings"
 AIRTABLE_ENDPOINT = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
 HEADERS = {
     "Authorization": f"Bearer {AIRTABLE_API_KEY}",
@@ -15,8 +14,9 @@ HEADERS = {
 }
 
 # Constants
-TIME_SLOTS = [f"{hour}:00" for hour in range(10, 22)]
-COURTS = ["Court 1", "Court 2"]
+TIME_SLOTS = ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00",
+              "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"]
+COURTS = ["Court 1", "Court 2", "Court 3", "Court 4", "Court 5"]
 
 # Utility functions
 def fetch_bookings():
@@ -26,21 +26,29 @@ def fetch_bookings():
         bookings = [
             {
                 "id": r["id"],
-                **r["fields"]
-            } for r in records
+                "Booking ID": r["fields"].get("Booking ID"),
+                "Resident Name": r["fields"].get("Resident"),
+                "Email": r["fields"].get("Email"),
+                "Unit Number": r["fields"].get("Unit Number"),
+                "Booking Date": r["fields"].get("Booking Date"),
+                "Booking Time": r["fields"].get("Booking Time"),
+                "Court": r["fields"].get("Court")
+            }
+            for r in records
         ]
         return pd.DataFrame(bookings)
     else:
         return pd.DataFrame()
 
-def create_booking(name, email, unit, date, time, court):
+def create_booking(booking_id, resident, email, unit, date, time, court):
     data = {
         "fields": {
-            "Name": name,
+            "Booking ID": booking_id,
+            "Resident": resident,
             "Email": email,
-            "Unit": unit,
-            "Date": date,
-            "Time": time,
+            "Unit Number": unit,
+            "Booking Date": date,
+            "Booking Time": time,
             "Court": court
         }
     }
@@ -52,67 +60,69 @@ def delete_booking(record_id):
     response = requests.delete(url, headers=HEADERS)
     return response.status_code == 200
 
-# Streamlit App
+# Streamlit UI
 st.set_page_config(page_title="KaiaHeights Badminton Booking", layout="wide")
-st.title("🏸 KaiaHeights Badminton Booking")
+st.title("\ud83c\udfc8 KaiaHeights Badminton Booking")
 
-selected_date = st.date_input("Select a date", datetime.today())
-bookings_df = fetch_bookings()
-st.write("Airtable DataFrame:")
-st.write(bookings_df)
-
-# Filter bookings for selected date
-bookings_on_date = bookings_df[bookings_df["Date"] == selected_date.strftime("%Y-%m-%d")]
-
-# Show court availability
-st.subheader(f"Availability on {selected_date.strftime('%A, %d %B %Y')}")
-for court in COURTS:
-    st.markdown(f"### {court}")
-    cols = st.columns(6)
-    for i, time in enumerate(TIME_SLOTS):
-        is_booked = ((bookings_on_date["Court"] == court) & (bookings_on_date["Time"] == time)).any()
-        if is_booked:
-            cols[i % 6].button(time, disabled=True)
-        else:
-            cols[i % 6].success(time)
-
-# Booking form
-st.subheader("Make a Booking")
-with st.form("booking_form"):
-    name = st.text_input("Name")
+# Sidebar for user input
+with st.sidebar:
+    st.header("Make a Booking")
+    resident_name = st.text_input("Resident Name")
     email = st.text_input("Email")
-    unit = st.text_input("Unit")
-    date = st.date_input("Booking Date", datetime.today())
-    time = st.selectbox("Time Slot", TIME_SLOTS)
-    court = st.selectbox("Court", COURTS)
-    submit = st.form_submit_button("Book")
+    unit_number = st.text_input("Unit Number")
+    booking_date = st.date_input("Booking Date", min_value=datetime.today())
+    booking_time = st.selectbox("Booking Time", TIME_SLOTS)
+    court = st.selectbox("Select Court", COURTS)
 
-    if submit:
-        # Check if already booked
-        existing = bookings_df[
-            (bookings_df["Email"] == email) &
-            (bookings_df["Date"] == date.strftime("%Y-%m-%d"))
-        ]
-        if len(existing) >= 2:
-            st.error("You have reached the maximum of 2 bookings per day.")
+    if st.button("Book Court"):
+        if resident_name and email and unit_number:
+            booking_id = f"BKG-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            if create_booking(booking_id, resident_name, email, unit_number,
+                              booking_date.strftime("%Y-%m-%d"), booking_time, court):
+                st.success("Booking created successfully!")
+            else:
+                st.error("Failed to create booking")
         else:
-            success = create_booking(name, email, unit, date.strftime("%Y-%m-%d"), time, court)
-            if success:
-                st.success("Booking confirmed!")
-            else:
-                st.error("Failed to book. Please try again.")
+            st.warning("Please fill in all required fields")
 
-# Cancel/edit bookings
-st.subheader("Your Bookings")
-user_email = st.text_input("Enter your email to manage bookings")
-if user_email:
-    user_bookings = bookings_df[bookings_df["Email"] == user_email]
-    for i, row in user_bookings.iterrows():
-        st.markdown(f"**{row['Date']}** - {row['Time']} - {row['Court']}")
-        col1, col2 = st.columns(2)
-        if col1.button(f"Cancel {i}"):
-            if delete_booking(row["id"]):
-                st.success("Booking cancelled.")
-                st.experimental_rerun()
-            else:
-                st.error("Failed to cancel booking.")
+# Main content
+st.header("Current Bookings")
+selected_date = st.date_input("Filter by date", datetime.today(), key="main_date")
+
+# Fetch and display bookings
+bookings_df = fetch_bookings()
+if not bookings_df.empty:
+    filtered_df = bookings_df[bookings_df["Booking Date"] == selected_date.strftime("%Y-%m-%d")]
+
+    if not filtered_df.empty:
+        st.dataframe(filtered_df)
+
+        # Delete booking option
+        if st.checkbox("Delete a booking"):
+            booking_to_delete = st.selectbox("Select booking to delete",
+                                             filtered_df["Booking ID"].tolist())
+            if st.button("Delete"):
+                record_id = filtered_df[filtered_df["Booking ID"] == booking_to_delete].iloc[0]["id"]
+                if delete_booking(record_id):
+                    st.success("Booking deleted successfully!")
+                else:
+                    st.error("Failed to delete booking")
+    else:
+        st.info("No bookings found for selected date")
+else:
+    st.info("No bookings available")
+
+# Display court availability
+st.header("Court Availability")
+availability_df = pd.DataFrame(True, index=TIME_SLOTS, columns=COURTS)
+
+if not bookings_df.empty:
+    for _, booking in bookings_df.iterrows():
+        if booking["Booking Date"] == selected_date.strftime("%Y-%m-%d"):
+            time = booking["Booking Time"]
+            court = booking["Court"]
+            if time in TIME_SLOTS and court in COURTS:
+                availability_df.loc[time, court] = False
+
+st.dataframe(availability_df.style.applymap(
+    lambda x: 'background-color: #90EE90' if x else 'background-color: #FFB6C1'))
