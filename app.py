@@ -12,14 +12,14 @@ st.set_page_config(page_title="KaiaHeights Badminton Booking", layout="centered"
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(credentials)
-sheet = client.open("KaiaHeights Badminton Bookings").sheet1
+sheet = client.open("KaiaHeights Badminton Booking").sheet1
 
 # Load data
 def load_bookings():
     return pd.DataFrame(sheet.get_all_records())
 
 bookings = load_bookings()
-timeslots = ["8am - 9am", "9am - 10am", "5pm - 6pm", "6pm - 7pm"]
+timeslots = ["8am - 9am", "9am - 10am", "10am - 11am", "11am - 12pm", "12pm - 1pm", "1pm - 2pm", "2pm - 3pm", "3pm - 4pm", "5pm - 6pm", "6pm - 7pm", "7pm - 8pm", "8pm - 9pm", "9pm - 10pm"]
 
 # Validation
 def is_valid_unit(unit):
