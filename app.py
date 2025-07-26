@@ -14,9 +14,9 @@ HEADERS = {
 }
 
 # Constants
-TIME_SLOTS = ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00",
+TIME_SLOTS = ["8:00", "9:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00",
               "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"]
-COURTS = ["Court 1", "Court 2", "Court 3", "Court 4", "Court 5"]
+COURTS = ["Court 1", "Court 2"]
 
 # Utility functions
 def fetch_bookings():
