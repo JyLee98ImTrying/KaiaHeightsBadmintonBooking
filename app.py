@@ -4,6 +4,10 @@ from datetime import datetime, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
 
+gc = gspread.service_account(filename="credentials.json")
+sheet = gc.open("Kaia Heights Badminton Booking").sheet1
+print(sheet.get_all_records())
+
 # === CONFIGURATION ===
 SHEET_NAME = "Kaia Heights Badminton Booking"
 
