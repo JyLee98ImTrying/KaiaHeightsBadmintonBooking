@@ -60,7 +60,7 @@ selected_date = st.date_input("Select a date", datetime.today())
 bookings_df = fetch_bookings()
 
 # Filter bookings for selected date
-bookings_on_date = bookings_df[bookings_df["Booking Date"] == selected_date.strftime("%Y-%m-%d")]
+bookings_on_date = bookings_df[bookings_df["Date"] == selected_date.strftime("%Y-%m-%d")]
 
 # Show court availability
 st.subheader(f"Availability on {selected_date.strftime('%A, %d %B %Y')}")
