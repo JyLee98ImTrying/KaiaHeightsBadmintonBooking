@@ -58,6 +58,8 @@ st.title("🏸 KaiaHeights Badminton Booking")
 
 selected_date = st.date_input("Select a date", datetime.today())
 bookings_df = fetch_bookings()
+st.write("Airtable DataFrame:")
+st.write(bookings_df)
 
 # Filter bookings for selected date
 bookings_on_date = bookings_df[bookings_df["Date"] == selected_date.strftime("%Y-%m-%d")]
