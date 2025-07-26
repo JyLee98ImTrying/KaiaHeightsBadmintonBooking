@@ -120,3 +120,37 @@ with st.form("cancel_unit"):
             for _, row in df.iterrows():
                 sheet.append_row(list(row))
             st.success("Booking(s) cancelled for that unit and date.")
+
+# ------------------ CANCEL INDIVIDUAL BOOKING ------------------
+st.subheader("🗑 Cancel Individual Booking")
+with st.form("cancel_booking"):
+    cancel_name = st.text_input("Your Name")
+    cancel_unit_specific = st.text_input("Your Unit Number (X-XX-XX)", key="unit_cancel_specific")
+    cancel_date_specific = st.selectbox("Date", dates, key="cancel_specific_date")
+    cancel_time_specific = st.selectbox("Time Slot", time_slots)
+    cancel_court_specific = st.selectbox("Court", courts)
+    cancel_individual = st.form_submit_button("Cancel Selected Booking")
+
+    if cancel_individual:
+        if not cancel_name or not cancel_unit_specific:
+            st.error("Name and Unit number are required")
+        elif not re.match(r"^\d-\d{2}-\d{2}$", cancel_unit_specific):
+            st.error("Invalid unit format.")
+        else:
+            df = pd.DataFrame(sheet.get_all_records())
+            condition = (
+                (df['Name'] == cancel_name) &
+                (df['Unit'] == cancel_unit_specific) &
+                (df['Date'] == cancel_date_specific) &
+                (df['Time'] == cancel_time_specific) &
+                (df['Court'] == cancel_court_specific)
+            )
+            if condition.any():
+                df = df[~condition]
+                sheet.clear()
+                sheet.append_row(["Name", "Email", "Unit", "Date", "Time", "Court", "BookedAt"])
+                for _, row in df.iterrows():
+                    sheet.append_row(list(row))
+                st.success("Selected booking cancelled.")
+            else:
+                st.warning("No matching booking found.")
